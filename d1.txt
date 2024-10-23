@@ -1,0 +1,90 @@
+#include <iostream>
+#include <WinSock2.h>
+#include <ctime>
+#include <thread>
+#include <vector>
+#include <mutex>
+
+#pragma comment (lib, "Ws2_32.lib")
+#pragma warning(disable: 4996)
+
+// Функция для отправки HTTP-ответа с датой и временем
+void send_response(SOCKET client_socket) {
+    // Получаем текущее время
+    std::time_t now = std::time(0);
+    char* dt = std::ctime(&now);
+
+    // Простой HTTP-ответ с датой и временем
+    std::string response =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: text/html\r\n"
+        "Connection: close\r\n\r\n"
+        "<html><body><h1>Current Date and Time</h1><p>" + std::string(dt) + "</p></body></html>";
+
+    // Отправляем ответ клиенту
+    send(client_socket, response.c_str(), response.length(), 0);
+    closesocket(client_socket); // Закрытие соединения после отправки
+}
+
+// Функция для обработки нового соединения
+void handle_client(SOCKET client_socket) {
+    std::cout << "Client connected!\n";
+    send_response(client_socket);
+}
+
+// Основная функция
+int main() {
+    // Инициализация Winsock
+    WSAData wsaData;
+    WORD DLLVersion = MAKEWORD(2, 1);
+    if (WSAStartup(DLLVersion, &wsaData) != 0) {
+        std::cout << "Error during WSAStartup\n";
+        exit(1);
+    }
+
+    SOCKADDR_IN addr;
+    int sizeofaddr = sizeof(addr);
+    addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    addr.sin_port = htons(15476);
+    addr.sin_family = AF_INET;
+
+    SOCKET sListenn = socket(AF_INET, SOCK_STREAM, NULL);
+    if (bind(sListenn, (SOCKADDR*)&addr, sizeof(addr)) == SOCKET_ERROR) {
+        std::cout << "Bind failed with error: " << WSAGetLastError() << "\n";
+        closesocket(sListenn);
+        WSACleanup();
+        return 1;
+    }
+
+    if (listen(sListenn, SOMAXCONN) == SOCKET_ERROR) { // прослушивание
+        std::cout << "Listen failed with error: " << WSAGetLastError() << "\n";
+        closesocket(sListenn);
+        WSACleanup();
+        return 1;
+    }
+
+    std::vector<std::thread> threads; // Для хранения потоков
+
+    while (true) {
+        SOCKET newConnection = accept(sListenn, (SOCKADDR*)&addr, &sizeofaddr);
+        if (newConnection == INVALID_SOCKET) {
+            std::cout << "Failed to accept connection\n";
+            continue; // Пропускаем итерацию, если не удалось принять соединение
+        }
+
+        // Создание потока для обработки клиента
+        threads.emplace_back(handle_client, newConnection);
+    }
+
+    // Ожидание завершения всех потоков
+    for (std::thread& t : threads) {
+        if (t.joinable()) {
+            t.join();
+        }
+    }
+
+    // Очистка ресурсов
+    closesocket(sListenn);
+    WSACleanup();
+    return 0;
+}
