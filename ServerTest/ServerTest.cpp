@@ -13,27 +13,51 @@
 void send_content(SOCKET client_socket) {
 
     std::time_t now = std::time(0);
-    char* dt = std::ctime(&now);        
+    char* dt = std::ctime(&now);
 
     // HTTP-ответ с датой и временем
     std::string body = "<html><body><h1>Current Date and Time</h1><p>" + std::string(dt) + "</p></body></html>";
     std::string response =
         "HTTP/1.1 200 OK\r\n"
         "Content-Type: text/html\r\n"
-        "Content-Length: " + std::to_string(body.size()) +"\r\n"
+        "Content-Length: " + std::to_string(body.size()) + "\r\n"
         "Connection: close\r\n\r\n"
-        +body;
+        + body;
 
-    
+
     // Отправляем ответ клиенту
     //std::cout << "socket: " + client_socket << "\n";
     send(client_socket, response.c_str(), response.length(), 0);
-    
+
 }
 
 // Функция для обработки нового соединения
 void handle_requests(SOCKET client_socket, int counts) {
+    char buffer[1024];
+    int len = 10;
 
+    std::cout << "\nID req " << counts << std::endl;
+
+    int bytesReceived = recv(client_socket, buffer, sizeof(buffer) - 1, 0);
+    if (bytesReceived > 0) {
+        buffer[bytesReceived] = '\0';
+
+
+        //std::cout << "\nSocket:" << std::to_string(sock_info) << "\n";
+        std::cout << "Received request:\n" << buffer << std::endl;
+
+        // Отправляем ответ клиенту
+        send_content(client_socket);
+
+    }
+    else if (bytesReceived == 0) {
+        // Клиент закрыл соединение
+        std::cout << "Client disconnected.\n";
+    }
+    else {
+        // Произошла ошибка
+        std::cout << "Failed to receive request\n";
+    }
 
 }
 
@@ -66,14 +90,12 @@ int main() {
         return 1;
     }
 
-    std::thread threads; // Для хранения потоков
-    //std::vector Thr = threads;
+    std::vector<std::thread> threads; // Для хранения потоков
 
     std::cout << "Waiting for client connections...\n";
     int count_req = 0;
-    char buffer[1024];
 
-    
+
     while (true) {
 
         SOCKET newConnection = accept(sListen, (SOCKADDR*)&addr, &sizeofaddr); //(SOCKADDR*)&addr IP клиента
@@ -82,44 +104,18 @@ int main() {
             continue; // Пропускаем итерацию, если не удалось принять соединение
         }
 
-        std::cout << "\nID req " << count_req << std::endl;
-
-        int bytesReceived = recv(newConnection, buffer, sizeof(buffer) - 1, 0);
-        if (bytesReceived > 0) {
-            buffer[bytesReceived] = '\0';
-
-
-            //std::cout << "\nSocket:" << std::to_string(sock_info) << "\n";
-            std::cout << "Received request:\n" << buffer << std::endl;
-
-            // Отправляем ответ клиенту
-            //send_content(newConnection);
-
-        }
-        else if (bytesReceived == 0) {
-            // Клиент закрыл соединение
-            std::cout << "Client disconnected.\n";
-            //for (std::thread& t : threads) {
-            //    if (t.joinable()) {
-            //        t.join();
-            //    }
-            //}
-        }
-        else {
-            // Произошла ошибка
-            std::cout << "Failed to receive request\n";
-        }
-
         // Создание потока для обработки клиента        
-        
-        
-        threads.emplace_back(send_content, newConnection);
+        threads.emplace_back(handle_requests, newConnection, count_req);
         count_req++;
     }
 
     // Ожидание завершения всех потоков
     std::cout << "\n END \n";
-
+    for (std::thread& t : threads) {
+        if (t.joinable()) {
+            t.join();
+        }
+    }
 
     closesocket(sListen);
     WSACleanup();
